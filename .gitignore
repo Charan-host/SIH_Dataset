@@ -1,0 +1,21 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+.backend-runtime/
+oil-spill-attribution - Copy/
+venv/
+node_modules/
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+.pytest_cache/
+.ruff_cache/
+.coverage
