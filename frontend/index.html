@@ -1199,6 +1199,7 @@ tr[data-candidate-index]:focus{outline:2px solid #17374d;outline-offset:-2px}
 const API=(window.CASC_CONFIG?.apiBaseUrl||"http://127.0.0.1:8000").replace(/\/$/,"");
 const RENDER_API_ORIGIN="https://sih-dataset.onrender.com";
 const isRenderApi=(()=>{try{return new URL(API,window.location.href).origin===RENDER_API_ORIGIN;}catch{return false;}})();
+const RENDER_READ_TIMEOUT_MS=60000;
 const RENDER_HEALTH_TIMEOUT_MS=65000;
 const RENDER_HEALTH_ATTEMPTS=2;
 const RENDER_HEALTH_RETRY_BACKOFF_MS=1500;
@@ -2283,7 +2284,7 @@ function requestSignal(timeoutMs){
   if(parent){if(parent.aborted)controller.abort();else parent.addEventListener("abort",abortFromParent,{once:true});}
   return {signal:controller.signal,didTimeout:()=>timedOut,cleanup(){clearTimeout(timeout);parent?.removeEventListener("abort",abortFromParent);}};
 }
-async function getJSON(path,timeoutMs=4000){
+async function getJSON(path,timeoutMs=isRenderApi?RENDER_READ_TIMEOUT_MS:4000){
   const url=API+path;
   const request=requestSignal(timeoutMs);
   try{const r=await fetch(url,{signal:request.signal,cache:"no-store"});if(!r.ok){const error=new Error(`${path} returned HTTP ${r.status}`);error.status=r.status;throw error;}return await r.json();}
@@ -2313,7 +2314,7 @@ function waitForLoadRetry(delayMs){
 async function loadInitialHealth(isBootLoad){
   const coldStart=isRenderApi&&isBootLoad;
   const attempts=coldStart?RENDER_HEALTH_ATTEMPTS:1;
-  const timeoutMs=coldStart?RENDER_HEALTH_TIMEOUT_MS:4000;
+  const timeoutMs=coldStart?RENDER_HEALTH_TIMEOUT_MS:(isRenderApi?RENDER_READ_TIMEOUT_MS:4000);
   for(let attempt=1;attempt<=attempts;attempt++){
     try{
       const health=await getJSON("/health",timeoutMs);
