@@ -1197,6 +1197,13 @@ tr[data-candidate-index]:focus{outline:2px solid #17374d;outline-offset:-2px}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API=(window.CASC_CONFIG?.apiBaseUrl||"http://127.0.0.1:8000").replace(/\/$/,"");
+const RENDER_API_ORIGIN="https://sih-dataset.onrender.com";
+const isRenderApi=(()=>{try{return new URL(API,window.location.href).origin===RENDER_API_ORIGIN;}catch{return false;}})();
+const RENDER_HEALTH_TIMEOUT_MS=65000;
+const RENDER_HEALTH_ATTEMPTS=2;
+const RENDER_HEALTH_RETRY_BACKOFF_MS=1500;
+// Covers two bounded health attempts plus the existing initial endpoint load.
+const RENDER_BOOT_SAFETY_TIMEOUT_MS=225000;
 let activeIncidentId=null;
 let loadedIncidentId=null;
 
@@ -2244,7 +2251,7 @@ function startBootFlow(){
   bootSetStep("health","loading");bootSetStep("incident","loading");
   setSectionState("incident","loading");
   bootSkipTimer=setTimeout(closeBootScreen,700);
-  bootHardTimer=setTimeout(handleBootHardTimeout,8000);
+  bootHardTimer=setTimeout(handleBootHardTimeout,isRenderApi?RENDER_BOOT_SAFETY_TIMEOUT_MS:8000);
 }
 function unavailableMessage(key,path,offline=false){
   if(offline)return `Backend unavailable; the demonstration fallback is shown.`;
@@ -2270,16 +2277,20 @@ function handleBootHardTimeout(){
 }
 
 function requestSignal(timeoutMs){
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),timeoutMs),parent=activeLoadController?.signal;
+  const controller=new AbortController();let timedOut=false;
+  const timeout=setTimeout(()=>{timedOut=true;controller.abort();},timeoutMs),parent=activeLoadController?.signal;
   const abortFromParent=()=>controller.abort();
   if(parent){if(parent.aborted)controller.abort();else parent.addEventListener("abort",abortFromParent,{once:true});}
-  return {signal:controller.signal,cleanup(){clearTimeout(timeout);parent?.removeEventListener("abort",abortFromParent);}};
+  return {signal:controller.signal,didTimeout:()=>timedOut,cleanup(){clearTimeout(timeout);parent?.removeEventListener("abort",abortFromParent);}};
 }
-async function getJSON(path){
+async function getJSON(path,timeoutMs=4000){
   const url=API+path;
-  const request=requestSignal(4000);
-  try{const r=await fetch(url,{signal:request.signal,cache:"no-store"});if(!r.ok)throw new Error(`${path} returned HTTP ${r.status}`);return await r.json();}
-  catch(error){console.error("[API] failure",url,error);throw error;}
+  const request=requestSignal(timeoutMs);
+  try{const r=await fetch(url,{signal:request.signal,cache:"no-store"});if(!r.ok){const error=new Error(`${path} returned HTTP ${r.status}`);error.status=r.status;throw error;}return await r.json();}
+  catch(error){
+    if(request.didTimeout()){const timeoutError=new Error(`${path} request timed out after ${timeoutMs} ms`,{cause:error});timeoutError.name="TimeoutError";timeoutError.requestTimeout=true;console.warn("[API] request timeout",url,timeoutError);console.error("[API] failure",url,timeoutError);throw timeoutError;}
+    console.error("[API] failure",url,error);throw error;
+  }
   finally{request.cleanup();}
 }
 async function postJSON(path){
@@ -2288,6 +2299,35 @@ async function postJSON(path){
   try{const r=await fetch(url,{method:"POST",signal:request.signal,cache:"no-store"});if(!r.ok)throw new Error(`${path} returned HTTP ${r.status}`);return await r.json();}
   catch(error){console.error("[API] failure",url,error);throw error;}
   finally{request.cleanup();}
+}
+function waitForLoadRetry(delayMs){
+  const signal=activeLoadController?.signal;
+  if(signal?.aborted)return Promise.reject(new DOMException("Request cancelled","AbortError"));
+  return new Promise((resolve,reject)=>{
+    const finish=()=>{signal?.removeEventListener("abort",cancel);resolve();};
+    const timer=setTimeout(finish,delayMs);
+    const cancel=()=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);reject(new DOMException("Request cancelled","AbortError"));};
+    signal?.addEventListener("abort",cancel,{once:true});
+  });
+}
+async function loadInitialHealth(isBootLoad){
+  const coldStart=isRenderApi&&isBootLoad;
+  const attempts=coldStart?RENDER_HEALTH_ATTEMPTS:1;
+  const timeoutMs=coldStart?RENDER_HEALTH_TIMEOUT_MS:4000;
+  for(let attempt=1;attempt<=attempts;attempt++){
+    try{
+      const health=await getJSON("/health",timeoutMs);
+      if(health?.status!=="healthy"||health?.database!=="connected")throw new Error("Health response did not match {status: healthy, database: connected}");
+      return health;
+    }catch(error){
+      const transient=error?.requestTimeout||error instanceof TypeError||[502,503,504].includes(error?.status);
+      if(!coldStart||attempt===attempts||!transient)throw error;
+      console.warn(`[API] Render health warm-up attempt ${attempt}/${attempts} failed; retrying once after backoff`,error);
+      bootSetStep("health","loading");
+      await waitForLoadRetry(RENDER_HEALTH_RETRY_BACKOFF_MS);
+    }
+  }
+  throw new Error("Health check did not complete");
 }
 async function refreshBackend(){
   const button=document.getElementById("refreshBackendBtn");
@@ -2317,8 +2357,7 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
   if(isBootLoad||requestedIncidentId!=null)setLoadStatus("LOADING","LOADING");
   try{
     if(isBootLoad)bootSetStep("health","loading");
-    let health;
-    try{health=await getJSON("/health");if(health?.status!=="healthy"||health?.database!=="connected")throw new Error("Health response did not match {status: healthy, database: connected}");bootSetStep("health","done");}
+    try{await loadInitialHealth(isBootLoad);bootSetStep("health","done");}
     catch(error){bootSetStep("health","unavailable");throw error;}
     let incidentRaw;
     try{incidentRaw=await getJSON("/incidents/");}
@@ -2418,6 +2457,7 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
     if(isBootLoad)void finishBootFlow(bootEndMessage());
   }catch(error){
     if(loadId!==backendLoadSequence)return;
+    if(error?.name==="AbortError"){console.info("[API] load intentionally cancelled; current state retained");return;}
     console.error("[STATUS] initial load failed",error);
     if(!requiredDataReady){data=JSON.parse(JSON.stringify(demo));data.cases=[data.incident];data.casc=null;data.certificate=null;activeIncidentId=Number(data.incident.id);loadedIncidentId=activeIncidentId;setLoadStatus("OFFLINE","DEMO");console.warn("[DATA] fallback",error);}
     else{setLoadStatus("LIVE","PARTIAL");console.warn("[DATA] live required data retained; optional load failed",error);}
