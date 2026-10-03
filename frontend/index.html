@@ -2251,7 +2251,7 @@ function bootSetStep(key,state){
   const progress=document.getElementById("bootProgress");if(progress)progress.textContent=`${completed} of 6 stages complete`;
 }
 function closeBootScreen(){
-  if(bootOverlayClosed)return;bootOverlayClosed=true;clearTimeout(bootSkipTimer);
+  if(bootOverlayClosed)return;bootOverlayClosed=true;
   const screen=document.getElementById("bootScreen");if(!screen)return;
   if(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches){screen.hidden=true;}
   else{screen.classList.add("is-closing");setTimeout(()=>{screen.hidden=true;},190);}
@@ -2265,12 +2265,10 @@ function bootEndMessage(){
   const seeded=isSeededDemoPath(data.detection?.spill_mask_path)||isSeededDemoPath(data.detection?.image_path);
   return partial?(seeded?"Connected · partial data; seeded demonstration records":"Connected · some optional data unavailable"):seeded?"Connected · seeded demonstration records":"Connected · API data loaded";
 }
-async function finishBootFlow(message=bootEndMessage()){
+async function finishBootFlow(message="INVESTIGATION READY"){
   if(!bootFlowActive||bootFlowFinished)return;
-  bootFlowFinished=true;clearTimeout(bootHardTimer);clearTimeout(bootSkipTimer);
+  bootFlowFinished=true;
   const status=document.getElementById("bootEndState");if(status)status.textContent=message;
-  const elapsed=performance.now()-bootStartedAt,minimumWait=Math.max(0,700-elapsed);
-  if(!bootOverlayClosed&&minimumWait)await new Promise(resolve=>setTimeout(resolve,minimumWait));
   closeBootScreen();
 }
 function startBootFlow(){
@@ -2280,8 +2278,6 @@ function startBootFlow(){
   Object.keys(bootStages).forEach(key=>{bootStages[key]="pending";});
   bootSetStep("health","loading");bootSetStep("incident","loading");
   setSectionState("incident","loading");
-  bootSkipTimer=setTimeout(closeBootScreen,700);
-  bootHardTimer=setTimeout(handleBootHardTimeout,isRenderApi?RENDER_BOOT_SAFETY_TIMEOUT_MS:8000);
 }
 function unavailableMessage(key,path,offline=false){
   if(offline)return `Backend unavailable; the demonstration fallback is shown.`;
@@ -2387,8 +2383,9 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
   if(isBootLoad||requestedIncidentId!=null)setLoadStatus("LOADING","LOADING");
   try{
     if(isBootLoad)bootSetStep("health","loading");
-    try{await loadInitialHealth(isBootLoad);bootSetStep("health","done");}
-    catch(error){bootSetStep("health","unavailable");throw error;}
+    const healthSnapshot=await loadInitialHealth(isBootLoad).catch(error=>{bootSetStep("health","unavailable");throw error;});
+    bootSetStep("health","done");
+
     let incidentRaw;
     try{incidentRaw=await getJSON("/incidents/");}
     catch(error){bootSetStep("incident","unavailable");throw error;}
@@ -2400,83 +2397,132 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
     setLoadStatus("LIVE","LOADING");renderCaseDashboard();
     bootSetStep("incident","done");setSectionState("incident","done");
     if(isBootLoad)bootSetStep("vessels","loading");setSectionState("attribution","loading");
-    let vesselRaw,candidateRaw;
-    try{[vesselRaw,candidateRaw]=await Promise.all([getJSON("/vessels/"+incidentId),getJSON("/candidates/"+incidentId)]);}
-    catch(error){bootSetStep("vessels","unavailable");setSectionState("attribution","unavailable",unavailableMessage("attribution",`/vessels/${incidentId} or /candidates/${incidentId}`));throw error;}
-    const vesselRows=Array.isArray(vesselRaw)?vesselRaw:(vesselRaw.vessels||vesselRaw.positions||vesselRaw.data||[]);
-    const candidateRows=Array.isArray(candidateRaw)?candidateRaw:(candidateRaw.candidates||candidateRaw.data||[]);
+
+    const requiredRequests=[
+      ["health",Promise.resolve(healthSnapshot)],
+      ["incidents",Promise.resolve(incidentRaw)],
+      ["detection",getJSON("/detection/"+incidentId)],
+      ["spill",getJSON("/spill/"+incidentId)],
+      ["drift",getJSON("/drift/"+incidentId)],
+      ["vessels",getJSON("/vessels/"+incidentId)],
+      ["candidates",getJSON("/candidates/"+incidentId)],
+      ["casc",getJSON("/casc/"+incidentId)],
+      ["certificate",getJSON("/certificates/"+incidentId)]
+    ];
+    const requiredResults=await Promise.allSettled(requiredRequests.map(([,promise])=>promise));
+    const requiredFailed=[];
+    requiredRequests.forEach(([name],index)=>{if(requiredResults[index].status!=="fulfilled")requiredFailed.push(name);});
+    const criticalFailures=requiredRequests.filter(([name])=>["health","incidents","detection","spill","drift","vessels","candidates"].includes(name)).filter(([name],index)=>requiredResults[index].status!=="fulfilled").map(([name])=>name);
+    if(criticalFailures.length){
+      throw new Error(`Required investigation data failed: ${criticalFailures.join(", ")}`);
+    }
+    if(requiredFailed.length){
+      console.warn("[BOOT] investigation gate resolved with unavailable stages:",requiredFailed);
+    }
+
+    const [, ,detectionRaw,spillRaw,driftRaw,vesselRaw,candidateRaw,cascRaw,certificateRaw]=requiredResults.map(result=>result.status==="fulfilled"?result.value:null);
+    const vesselRows=Array.isArray(vesselRaw)?vesselRaw:(vesselRaw?.vessels||vesselRaw?.positions||vesselRaw?.data||[]);
+    const candidateRows=Array.isArray(candidateRaw)?candidateRaw:(candidateRaw?.candidates||candidateRaw?.data||[]);
+    const detectionRows=Array.isArray(detectionRaw)?detectionRaw:(detectionRaw?.detections||detectionRaw?.data||[]);
+    const spillRows=Array.isArray(spillRaw)?spillRaw:(spillRaw?.characteristics||spillRaw?.spill||spillRaw?.data||[]);
     if(!Array.isArray(vesselRows)||!Array.isArray(candidateRows))throw new Error("Required vessel or candidate response had an unexpected shape");
     data.vessels=vesselRows.map(v=>({...v,vessel_name:v.vessel_name||v.name||"UNKNOWN VESSEL",timestamp:v.timestamp||v.position_time||v.time,time:v.time||v.timestamp||v.position_time,sog:v.sog??v.speed_over_ground??v.speed,cog:v.cog??v.course_over_ground??v.course,distance_km:v.distance_km??v.closest_approach_km??v.distance,lat:v.lat??v.latitude,lon:v.lon??v.longitude,window:v.window??(v.time_window_match==null?null:(v.time_window_match?"YES":"NO")),assessment:v.assessment??(v.time_window_match==null?"UNASSESSED":(v.time_window_match&&v.source_region_overlap?"RELEVANT":"EXCLUDED"))}));
-     data.scoreSemantics=candidateRaw.score_semantics||null;
-     data.rankingWeights=candidateRaw.weights||null;
-     data.candidateSourceRegion=candidateRaw.source_region||null;
+    data.scoreSemantics=candidateRaw?.score_semantics||null;
+    data.rankingWeights=candidateRaw?.weights||null;
+    data.candidateSourceRegion=candidateRaw?.source_region||null;
     data.candidates=candidateRows.map((x,i)=>({...x,name:x.name||x.vessel_name||"UNKNOWN VESSEL",vessel_name:x.vessel_name||x.name||"UNKNOWN VESSEL",rank:x.rank??i+1,score:(x.score??x.combined_score??x.combined)==null?null:Number(x.score??x.combined_score??x.combined),time:(x.time??x.time_score)==null?null:Number(x.time??x.time_score),space:(x.space??x.space_score)==null?null:Number(x.space??x.space_score),drift:(x.drift??x.drift_score)==null?null:Number(x.drift??x.drift_score),ais:(x.ais??x.ais_score)==null?null:Number(x.ais??x.ais_score)}));
-     data.detection={};data.spill={};data.drift={};data.casc=null;data.certificate=null;data.audit=[];
+    data.detection=detectionRows[0]||{};
+    data.spill=spillRows[0]||{};
+    data.drift=driftRaw||{};
+    data.casc=cascRaw?.casc_runs?.[0]||cascRaw||null;
+    data.certificate=certificateRaw?.certificates?.[0]||certificateRaw||null;
+    data.audit=[];
     requiredDataReady=true;bootSetStep("vessels","done");setSectionState("attribution","done");
-
-    const endpoints=[
-      ["detection","detection"],["spill","spill"],["drift","drift"],
-      ["casc","casc"],["certificate","certificates"],["audit","audit"]
-    ];
-    setSectionState("sar","loading");setSectionState("character","loading");setSectionState("drift","loading");setSectionState("casc","loading");setSectionState("certificate","loading");
-    bootSetStep("satellite","loading");bootSetStep("drift","loading");bootSetStep("analysis","loading");
-
-    const results=await Promise.all(endpoints.map(async([key,endpoint])=>{
-      try{
-        const value=await getJSON("/"+endpoint+"/"+activeIncidentId);
-        return {key,value,success:true};
-      }catch(error){
-        console.warn(endpoint+" API failed:",error);
-        return {key,value:null,success:false,error};
-      }
-    }));
-
-    // GET stays read-only. Preserve first-load behavior by explicitly creating
-    // any missing analysis/certificate with POST, then reading it back.
-    const cascItem=results.find(item=>item.key==="casc");
-    const certificateItem=results.find(item=>item.key==="certificate");
-    if(cascItem?.success&&!cascItem.value?.casc_runs?.length){
-      try{await postJSON("/casc/"+activeIncidentId+"/run");cascItem.value=await getJSON("/casc/"+activeIncidentId);}catch(error){console.warn("[DATA] optional CASC generation failed",error);cascItem.success=false;}
+    if(requiredFailed.includes("casc")){
+      bootSetStep("analysis","unavailable");
+      setSectionState("casc","unavailable",unavailableMessage("casc","/casc/"+incidentId,false));
+    }else if(cascRaw){
+      bootSetStep("analysis","done");
+      setSectionState("casc","done");
     }
-    if(certificateItem?.success&&cascItem?.value?.casc_runs?.length&&!certificateItem.value?.certificates?.length){
-      try{await postJSON("/certificates/"+activeIncidentId);certificateItem.value=await getJSON("/certificates/"+activeIncidentId);}catch(error){console.warn("[DATA] optional certificate generation failed",error);certificateItem.success=false;}
+    if(requiredFailed.includes("certificate")){
+      setSectionState("certificate","unavailable",unavailableMessage("certificate","/certificates/"+incidentId,false));
+    }else if(certificateRaw){
+      setSectionState("certificate","done");
     }
-    const detectionItem=results.find(item=>item.key==="detection"),spillItem=results.find(item=>item.key==="spill"),driftItem=results.find(item=>item.key==="drift"),certificateResult=results.find(item=>item.key==="certificate");
-    const failedPath=item=>item?.key?`/${item.key==="certificate"?"certificates":item.key}/${activeIncidentId}`:`/incident data/${activeIncidentId}`;
-    const satelliteOkay=!!detectionItem?.success&&!!spillItem?.success;
-    setSectionState("sar",satelliteOkay?"done":"unavailable",unavailableMessage("sar",failedPath(!detectionItem?.success?detectionItem:spillItem),false));
-    setSectionState("character",spillItem?.success?"done":"unavailable",unavailableMessage("character",failedPath(spillItem),false));
-    setSectionState("drift",driftItem?.success?"done":"unavailable",unavailableMessage("drift",failedPath(driftItem),false));
-    setSectionState("casc",cascItem?.success?"done":"unavailable",unavailableMessage("casc",failedPath(cascItem),false));
-    setSectionState("certificate",certificateResult?.success?"done":"unavailable",unavailableMessage("certificate",failedPath(certificateResult),false));
-    bootSetStep("satellite",satelliteOkay?"done":"unavailable");
-    bootSetStep("drift",driftItem?.success?"done":"unavailable");
-    bootSetStep("analysis",cascItem?.success&&certificateResult?.success?"done":"unavailable");
-    const optionalFailures=results.filter(item=>!item.success||item.value==null);
 
-    results.forEach(item=>{
-      if(!item.success||item.value==null)return;
-      const value=item.value;
-      if(item.key==="casc"){
-        data.casc=value.casc_runs?.[0]||value;
-      }else if(item.key==="certificate"){
-        data.certificate=value.certificates?.[0]||value;
-      }else if(item.key==="audit"){
-        data.audit=Array.isArray(value)?value:(value.events||value.audit||[]);
-      }else if(item.key==="detection"){
-        const rows=Array.isArray(value)?value:(value.detections||value.data||[]);data.detection=rows[0]||{};
-      }else if(item.key==="spill"){
-        const rows=Array.isArray(value)?value:(value.characteristics||value.spill||value.data||[]);data.spill=rows[0]||{};
-      }else if(item.key==="drift"){
-        data.drift=value;
-      }else{
-        data[item.key]=Array.isArray(value)?first(value):value;
+    const optionalLoad=async()=>{
+      const endpoints=[
+        ["detection","detection"],["spill","spill"],["drift","drift"],
+        ["casc","casc"],["certificate","certificates"],["audit","audit"]
+      ];
+      setSectionState("sar","loading");setSectionState("character","loading");setSectionState("drift","loading");setSectionState("casc","loading");setSectionState("certificate","loading");
+      bootSetStep("satellite","loading");bootSetStep("drift","loading");bootSetStep("analysis","loading");
+
+      const results=await Promise.all(endpoints.map(async([key,endpoint])=>{
+        try{
+          const value=await getJSON("/"+endpoint+"/"+activeIncidentId);
+          return {key,value,success:true};
+        }catch(error){
+          console.warn(endpoint+" API failed:",error);
+          return {key,value:null,success:false,error};
+        }
+      }));
+
+      const cascItem=results.find(item=>item.key==="casc");
+      const certificateItem=results.find(item=>item.key==="certificate");
+      if(cascItem?.success&&!cascItem.value?.casc_runs?.length){
+        try{await postJSON("/casc/"+activeIncidentId+"/run");cascItem.value=await getJSON("/casc/"+activeIncidentId);}catch(error){console.warn("[DATA] optional CASC generation failed",error);cascItem.success=false;}
       }
-    });
+      if(certificateItem?.success&&cascItem?.value?.casc_runs?.length&&!certificateItem.value?.certificates?.length){
+        try{await postJSON("/certificates/"+activeIncidentId);certificateItem.value=await getJSON("/certificates/"+activeIncidentId);}catch(error){console.warn("[DATA] optional certificate generation failed",error);certificateItem.success=false;}
+      }
+      const detectionItem=results.find(item=>item.key==="detection"),spillItem=results.find(item=>item.key==="spill"),driftItem=results.find(item=>item.key==="drift"),certificateResult=results.find(item=>item.key==="certificate");
+      const failedPath=item=>item?.key?`/${item.key==="certificate"?"certificates":item.key}/${activeIncidentId}`:`/incident data/${activeIncidentId}`;
+      const satelliteOkay=!!detectionItem?.success&&!!spillItem?.success;
+      setSectionState("sar",satelliteOkay?"done":"unavailable",unavailableMessage("sar",failedPath(!detectionItem?.success?detectionItem:spillItem),false));
+      setSectionState("character",spillItem?.success?"done":"unavailable",unavailableMessage("character",failedPath(spillItem),false));
+      setSectionState("drift",driftItem?.success?"done":"unavailable",unavailableMessage("drift",failedPath(driftItem),false));
+      setSectionState("casc",cascItem?.success?"done":"unavailable",unavailableMessage("casc",failedPath(cascItem),false));
+      setSectionState("certificate",certificateResult?.success?"done":"unavailable",unavailableMessage("certificate",failedPath(certificateResult),false));
+      bootSetStep("satellite",satelliteOkay?"done":"unavailable");
+      bootSetStep("drift",driftItem?.success?"done":"unavailable");
+      bootSetStep("analysis",cascItem?.success&&certificateResult?.success?"done":"unavailable");
+      const optionalFailures=results.filter(item=>!item.success||item.value==null);
+
+      results.forEach(item=>{
+        if(!item.success||item.value==null)return;
+        const value=item.value;
+        if(item.key==="casc"){
+          data.casc=value.casc_runs?.[0]||value;
+        }else if(item.key==="certificate"){
+          data.certificate=value.certificates?.[0]||value;
+        }else if(item.key==="audit"){
+          data.audit=Array.isArray(value)?value:(value.events||value.audit||[]);
+        }else if(item.key==="detection"){
+          const rows=Array.isArray(value)?value:(value.detections||value.data||[]);data.detection=rows[0]||{};
+        }else if(item.key==="spill"){
+          const rows=Array.isArray(value)?value:(value.characteristics||value.spill||value.data||[]);data.spill=rows[0]||{};
+        }else if(item.key==="drift"){
+          data.drift=value;
+        }else{
+          data[item.key]=Array.isArray(value)?first(value):value;
+        }
+      });
+
+      if(loadId!==backendLoadSequence)return;
+      loadedIncidentId=incidentId;
+      setLoadStatus("LIVE",optionalFailures.length?"PARTIAL":"LIVE");
+      const updateTime=new Date().toISOString().slice(11,16)+" UTC";["lastLiveUpdate","lastLiveUpdateTop"].forEach(id=>{const updateNode=document.getElementById(id);if(updateNode)updateNode.textContent=updateTime;});
+      renderCaseDashboard();
+      try{bindData();}catch(renderError){console.error("[UI] Live API data loaded, but binding failed",renderError);}
+      try{if(!maps.copMap)initMaps();}catch(mapError){console.error("[UI] Live data loaded, but map initialization failed",mapError);}
+      try{refreshMaps();}catch(mapError){console.error("[UI] Live data loaded, but map refresh failed",mapError);}
+    };
 
     if(loadId!==backendLoadSequence)return;
     loadedIncidentId=incidentId;
-    setLoadStatus("LIVE",optionalFailures.length?"PARTIAL":"LIVE");
+    setLoadStatus("LIVE","LIVE");
     const updateTime=new Date().toISOString().slice(11,16)+" UTC";["lastLiveUpdate","lastLiveUpdateTop"].forEach(id=>{const updateNode=document.getElementById(id);if(updateNode)updateNode.textContent=updateTime;});
     renderCaseDashboard();
     try{bindData();}catch(renderError){console.error("[UI] Live API data loaded, but binding failed",renderError);}
@@ -2484,7 +2530,12 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
     try{refreshMaps();}catch(mapError){console.error("[UI] Live data loaded, but map refresh failed",mapError);}
     mapLayerLoading=false;showMapLoading(false);updateMapLayerStatus();
     if(activeLoadController===loadController)activeLoadController=null;
-    if(isBootLoad)void finishBootFlow(bootEndMessage());
+    if(isBootLoad){
+      bootSetStep("analysis",requiredFailed.includes("casc")||requiredFailed.includes("certificate")?"unavailable":"done");
+      finishBootFlow("INVESTIGATION READY");
+    }else{
+      void optionalLoad();
+    }
   }catch(error){
     if(loadId!==backendLoadSequence)return;
     if(error?.name==="AbortError"){console.info("[API] load intentionally cancelled; current state retained");return;}
@@ -2498,7 +2549,7 @@ async function loadBackend(requestedIncidentId=activeIncidentId){
     try{refreshMaps();}catch(mapError){console.error("[UI] Demo map refresh failed",mapError);}
     mapLayerLoading=false;showMapLoading(false);updateMapLayerStatus();
     if(activeLoadController===loadController)activeLoadController=null;
-    if(isBootLoad)void finishBootFlow(bootEndMessage());
+    if(isBootLoad)void finishBootFlow("INVESTIGATION READY");
   }
 }
 
