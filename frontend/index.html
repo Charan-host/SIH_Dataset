@@ -376,12 +376,25 @@ input[type=range]{width:100%;accent-color:#17374d}
 .small-map-legend{
   position:absolute;z-index:500;left:10px;bottom:10px;background:rgba(255,255,255,.94);
   border:1px solid #bcc5c9;padding:8px 10px;font:11px/1.7 "Segoe UI",sans-serif;color:#52636c;
+  box-shadow:0 1px 3px rgba(20,35,45,.08);
 }
 #driftMapLegend{max-width:calc(100% - 20px)}
 .legend-line{display:inline-block;width:22px;height:2px;background:#17374d;vertical-align:middle;margin-right:5px}
 .legend-dash{display:inline-block;width:22px;border-top:2px dashed #17374d;vertical-align:middle;margin-right:5px}
+.legend-swatch{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:5px;border:2px solid #fff;box-shadow:0 0 0 1px rgba(23,55,77,.45)}
+.legend-swatch.wind{background:#17374d}
+.legend-swatch.current{background:#526c7c}
+.env-legend-item{display:inline-flex;align-items:center;gap:5px;margin-right:8px;white-space:nowrap}
+.env-legend-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.environmental-disclaimer{display:inline-block;padding:3px 7px;border:1px solid #bac3c7;background:#f4f6f7;color:#36505f;font:700 9px "Segoe UI",sans-serif;letter-spacing:.08em;text-transform:uppercase}
 .leaflet-control-attribution{font:10px "Segoe UI",sans-serif!important}
 .map-point-label{background:#fff;border:1px solid #9eabb0;border-radius:2px;padding:2px 5px;font:10px "Segoe UI",sans-serif;color:#17374d;box-shadow:0 1px 3px rgba(20,35,45,.12)}
+.environment-meta-badge{display:flex;flex-direction:column;gap:3px;min-width:170px;padding:7px 9px;border:1px solid #b8c3c7;background:rgba(255,255,255,.96);border-radius:4px;box-shadow:0 1px 4px rgba(20,35,45,.12);color:#203a47}
+.environment-meta-badge .env-head{font:700 9px "Segoe UI",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#51656f}
+.environment-meta-badge .env-coords{font:600 10px Consolas,"Courier New",monospace!important;color:#17374d;white-space:nowrap;font-variant-numeric:tabular-nums}
+.environment-meta-badge .env-time{font:600 10px Consolas,"Courier New",monospace!important;color:#5d6f7a;white-space:nowrap;font-variant-numeric:tabular-nums}
+.environment-vector-label{display:flex;flex-direction:column;gap:2px;min-width:110px;padding:4px 6px;border-radius:4px;border:1px solid rgba(23,55,77,.45);box-shadow:0 1px 3px rgba(20,35,45,.12);color:#fff;font:700 8px "Segoe UI",sans-serif;letter-spacing:.08em;text-transform:uppercase;text-align:center}
+.environment-vector-label strong{font:700 11px Consolas,"Courier New",monospace!important;letter-spacing:normal!important;color:#fff;line-height:1.1;font-variant-numeric:tabular-nums}
 .vessel-map-marker{background:#17374d;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #17374d;width:14px;height:14px}
 .vessel-map-marker.primary{background:#a33b3b;box-shadow:0 0 0 1px #a33b3b}
 .vessel-icon{display:block;width:25px;height:25px;filter:drop-shadow(0 1px 2px #102b3a99);transform-origin:50% 50%}
@@ -727,11 +740,11 @@ tr[data-candidate-index]:focus{outline:2px solid #17374d;outline-offset:-2px}
                 </div>
               </div>
             </div>
-            <div class="scene-help" id="sceneHelp" hidden>FLAT LOCAL VIEW · NO TERRAIN / ELEVATION · NEUTRAL BACKGROUND · NO LAND/WATER BASEMAP · DRAG ROTATE · SHIFT + DRAG TILT · ALT / MIDDLE DRAG PAN · SCROLL ZOOM · CLICK EVIDENCE FOR DETAILS</div>
+            <div class="scene-help" id="sceneHelp" hidden>3D ENVIRONMENT VIEW · ENVIRONMENTAL VECTORS SHOWN FROM THE RECORDED METOCEAN OBSERVATION · NOT A GRIDDED WEATHER FIELD</div>
             <div class="vessel-card" id="vesselCard"><div class="vessel-card-head"><span id="vesselCardTitle">VESSEL</span><button class="vessel-card-close" id="vesselCardClose" aria-label="Close">×</button></div><div class="vessel-card-body" id="vesselCardBody"></div></div>
             <div class="map-note">INCIDENT TIME <b id="mapTime">14:12 UTC</b> · SCALE 1:1</div>
             <div class="map-north"><b>N</b><span>▲</span></div>
-            <div class="map-legend"><span><i class="legend-dot spill-dot"></i> EST. SPILL</span><span><i class="legend-line-mini"></i> MODELED DRIFT</span><span>MODELED SOURCE</span><span>SCREENING · 5 km</span><span><i class="legend-dot leader-dot"></i> AIS VESSEL</span><span><i class="drift-arrow" aria-hidden="true"></i> METOCEAN · DIRECTION ONLY · NOT TO SCALE</span></div>
+            <div class="map-legend"><span><i class="legend-dot spill-dot"></i> EST. SPILL</span><span><i class="legend-line-mini"></i> MODELED DRIFT</span><span>MODELED SOURCE</span><span>SCREENING · 5 km</span><span><i class="legend-dot leader-dot"></i> AIS VESSEL</span><span><span class="legend-swatch wind"></span> WIND · FROM</span><span><span class="legend-swatch current"></span> SURFACE CURRENT · TOWARD</span><span class="environmental-disclaimer">POINT OBSERVATION · NOT A GRIDDED FIELD</span></div>
           </div>
           <div class="playback-note" id="mapSpatialContext" role="note" aria-live="polite">Spatial context will load with incident evidence.</div>
         </div>
@@ -926,7 +939,19 @@ tr[data-candidate-index]:focus{outline:2px solid #17374d;outline-offset:-2px}
         <div class="map-panel">
           <div class="panel-head"><span>Source-to-Spill Trajectory</span><span id="driftMapTime">—</span></div>
           <div class="map-wrap"><div id="driftMap" class="drift-map"></div>
-            <div class="small-map-legend" id="driftMapLegend"><span class="legend-line"></span>observed spill &nbsp; <span class="legend-dash"></span>backtrack trajectory &nbsp; <b>○</b> source region<br><span id="driftEnvLegend"><i class="drift-arrow" aria-hidden="true"></i> WIND (FROM) &nbsp; <i class="drift-arrow" style="border-bottom-color:#526c7c" aria-hidden="true"></i> SURFACE CURRENT (TOWARD) &nbsp; DIRECTION ONLY · NOT TO SCALE</span><div id="driftEnvironmentStatus" role="status" hidden></div></div>
+            <div class="small-map-legend" id="driftMapLegend">
+              <div class="env-legend-row">
+                <span class="env-legend-item"><span class="legend-swatch wind"></span>Wind · FROM</span>
+                <span class="env-legend-item"><span class="legend-swatch current"></span>Surface current · TOWARD</span>
+                <span class="env-legend-item"><span class="legend-dot spill-dot"></span>Metocean observation</span>
+              </div>
+              <div class="env-legend-row">
+                <span class="env-legend-item"><span class="legend-line"></span>Backtrack</span>
+                <span class="env-legend-item"><b>○</b> Source region</span>
+                <span class="env-legend-item"><span class="environmental-disclaimer">POINT OBSERVATION · NOT A GRIDDED FIELD</span></span>
+              </div>
+              <div id="driftEnvironmentStatus" role="status" hidden></div>
+            </div>
           </div>
         </div>
         <div class="panel">
@@ -943,16 +968,16 @@ tr[data-candidate-index]:focus{outline:2px solid #17374d;outline-offset:-2px}
             <div class="info-row"><span>Model confidence</span><strong id="driftConfidence">—</strong></div>
           </div>
           <div id="metoceanSection">
-            <div class="panel-head" style="margin-top:4px">WIND &amp; WEATHER CONDITIONS</div>
-            <div class="playback-note" style="padding:8px 12px">Environmental inputs used for backtracking; these conditions are not evidence of spill causation.</div>
+            <div class="panel-head" style="margin-top:4px">Environmental Conditions</div>
+            <div class="playback-note" style="padding:8px 12px">Point observation · not a gridded regional field. Environmental inputs used for backtracking; these conditions are not evidence of spill causation.</div>
             <div class="info-list">
-              <div class="info-row"><span>Environmental conditions</span><strong id="environmentalSummary">—</strong></div>
-              <div class="info-row"><span>Wind speed</span><strong id="driftWindSpeed">—</strong></div>
-              <div class="info-row"><span>Wind direction (from)</span><strong id="driftWindDirection">—</strong></div>
-              <div class="info-row"><span>Surface current speed</span><strong id="driftCurrentSpeed">—</strong></div>
-              <div class="info-row"><span>Current direction (toward)</span><strong id="driftCurrentDirection">—</strong></div>
-              <div class="info-row"><span>Weather</span><strong id="driftWeather">—</strong></div>
-              <div class="info-row"><span>Environmental observation time (UTC)</span><strong id="environmentalObservationTime">—</strong></div>
+              <div class="info-row"><span>Environmental summary</span><strong id="environmentalSummary">—</strong></div>
+              <div class="info-row"><span>Wind</span><strong id="driftWindSpeed">—</strong></div>
+              <div class="info-row"><span>Wind direction</span><strong id="driftWindDirection">—</strong></div>
+              <div class="info-row"><span>Surface current</span><strong id="driftCurrentSpeed">—</strong></div>
+              <div class="info-row"><span>Current direction</span><strong id="driftCurrentDirection">—</strong></div>
+              <div class="info-row"><span>Weather</span><strong id="driftWeather">Not provided</strong></div>
+              <div class="info-row"><span>Observation time</span><strong id="environmentalObservationTime">—</strong></div>
               <div class="info-row"><span>Observation location</span><strong id="environmentalLocation">—</strong></div>
               <div class="info-row"><span>Source</span><strong id="environmentalSource">—</strong></div>
             </div>
@@ -1550,15 +1575,17 @@ function environmentalTooltip(title,speed,direction,directionLabel,observation,s
   const clock=observation?formatUtc(observation).slice(11):"Not provided";
   const env=environmentalObservation(),coordinate=env?`${env.point[0].toFixed(6)}, ${env.point[1].toFixed(6)}`:"Not provided";
   const provenance=isSeededDemoPath(data.detection?.spill_mask_path)?"Seeded demonstration observation":"Backend environmental observation";
-  return `${title}<br>WGS84: ${coordinate}<br>Speed: ${number(speed,2)} kn<br>Direction: ${number(direction,0)}° ${directionLabel}<br>Observation: ${escapeTooltip(clock)}<br>Source: ${escapeTooltip(source||"Not provided")}<br>${provenance}`;
+  return `${title}<br>WGS84: ${coordinate}<br>Speed: ${number(speed,2)} kn<br>Direction: ${number(direction,0)}° ${directionLabel}<br>Observation: ${escapeTooltip(clock)}<br>Source: ${escapeTooltip(source||"Not provided")}<br>Point observation · not a gridded regional field<br>${provenance}`;
 }
 function environmentalNumber(value){return value==null||value===""||!Number.isFinite(Number(value))?null:Number(value);}
-function addEnvironmentalVector(group,point,bearing,color,tooltip,title,towardObservation=false){
-  const endpoint=environmentalDestination(point,bearing),tip=towardObservation?point:endpoint;
-  const path=towardObservation?[endpoint,point]:[point,endpoint],tipBearing=towardObservation?(bearing+180)%360:bearing;
-  L.polyline(path,{color,weight:3,opacity:.95}).addTo(group).bindTooltip(tooltip,{sticky:true});
-  const icon=L.divIcon({className:"",html:`<span class="drift-arrow" style="transform:rotate(${tipBearing}deg);border-bottom-color:${color}"></span>`,iconSize:[16,16],iconAnchor:[8,8]});
-  L.marker(tip,{icon,title,keyboard:true}).addTo(group).bindTooltip(tooltip,{sticky:true});
+function addEnvironmentalVector(group,point,bearing,color,tooltip,title,labelText,valueText,towardObservation=false){
+  const endpoint=environmentalDestination(point,bearing,2.8),path=towardObservation?[endpoint,point]:[point,endpoint],tip=towardObservation?point:endpoint,tipBearing=towardObservation?(bearing+180)%360:bearing;
+  L.polyline(path,{color,weight:4,opacity:.95,lineCap:"round",lineJoin:"round"}).addTo(group).bindTooltip(tooltip,{sticky:true});
+  const arrow=L.divIcon({className:"",html:`<span class="drift-arrow" style="transform:rotate(${tipBearing}deg);border-bottom-color:${color};filter:drop-shadow(0 0 2px rgba(0,0,0,.35))"></span>`,iconSize:[16,16],iconAnchor:[8,8]});
+  L.marker(tip,{icon:arrow,title,keyboard:true}).addTo(group).bindTooltip(tooltip,{sticky:true});
+  const labelPoint=environmentalDestination(point,bearing,6.8);
+  const labelIcon=L.divIcon({className:"",html:`<div class="environment-vector-label" style="background:${color};border-color:${color};"><div>${labelText}</div><strong>${valueText}</strong></div>`,iconSize:[120,40],iconAnchor:[60,18]});
+  L.marker(labelPoint,{icon:labelIcon,title,keyboard:true}).addTo(group).bindTooltip(tooltip,{sticky:true});
   return path;
 }
 function addEnvironmentalOverlay(m,group){
@@ -1567,23 +1594,25 @@ function addEnvironmentalOverlay(m,group){
   const observation=environmentalObservation();
   const env=observation?.env,hasWind=environmentalNumber(env?.wind_from_deg)!=null,hasCurrent=environmentalNumber(env?.current_direction_deg)!=null;
   if(unavailable){unavailable.hidden=!offline&&!!observation&&(hasWind||hasCurrent);unavailable.textContent=offline?"WIND / CURRENT UNAVAILABLE · BACKEND OFFLINE":"ENVIRONMENTAL INPUTS UNAVAILABLE";}
-  const legend=document.getElementById("driftEnvLegend");if(legend)legend.hidden=offline||!observation||!(hasWind||hasCurrent);
   if(offline||!observation)return [];
   const {point}=observation,points=[point];
   const obsTime=env.observation_time,source=isSeededDemoPath(data.detection?.spill_mask_path)?`Seeded demonstration observation - ${env.source||"environmental source not provided"}`:env.source;
   const clock=obsTime?formatUtc(obsTime).slice(11):"Not provided";
-  const provenance=isSeededDemoPath(data.detection?.spill_mask_path)?"DEMONSTRATION ENVIRONMENT":"ENVIRONMENT";
-  const label=L.marker(point,{icon:L.divIcon({className:"",html:`<span class="map-point-label">${provenance} · ${escapeTooltip(clock)}</span>`,iconSize:[180,18],iconAnchor:[0,24]}),title:"Environmental inputs used by the backtrack calculation",keyboard:true}).addTo(group);
-  label.bindTooltip("Environmental inputs used by the backtrack calculation.",{sticky:true});
+  const observationLabel=env.source?`METOCEAN`:`METOCEAN OBSERVATION`;
+  const observationIcon=L.divIcon({className:"",html:`<div class="environment-meta-badge"><div class="env-head">${observationLabel}</div><div class="env-coords">${point[0].toFixed(6)}, ${point[1].toFixed(6)}</div><div class="env-time">${escapeTooltip(clock)} UTC</div></div>`,iconSize:[180,70],iconAnchor:[90,60]});
+  L.marker(point,{icon:observationIcon,title:`METOCEAN OBSERVATION\n${point[0].toFixed(6)}, ${point[1].toFixed(6)}\n${clock} UTC`,keyboard:true}).addTo(group).bindPopup(`METOCEAN OBSERVATION<br>WGS84<br>${point[0].toFixed(6)}, ${point[1].toFixed(6)}<br>Observation<br>${escapeTooltip(clock)} UTC<br>Wind<br>${env.wind_speed_knots!=null?Number(env.wind_speed_knots).toFixed(2):"Not provided"} kn / ${env.wind_from_deg!=null?Math.round(Number(env.wind_from_deg)):"Not provided"}° FROM<br>Surface current<br>${env.current_speed_knots!=null?Number(env.current_speed_knots).toFixed(2):"Not provided"} kn / ${env.current_direction_deg!=null?Math.round(Number(env.current_direction_deg)):"Not provided"}° TOWARD<br>Source<br>${escapeTooltip(source||"Not provided")}<br>Point observation · not a gridded regional field`).bindTooltip(`METOCEAN OBSERVATION<br>WGS84: ${point[0].toFixed(6)}, ${point[1].toFixed(6)}<br>Observation: ${clock} UTC<br>Point observation · not a gridded regional field`,{sticky:true});
+  L.circleMarker(point,{radius:11,color:"#fff",weight:2,fillColor:"#17374d",fillOpacity:1}).addTo(group);
   const windFrom=environmentalNumber(env.wind_from_deg),windSpeed=env.wind_speed_knots;
   if(windFrom!=null){
     const tooltip=environmentalTooltip("WIND",windSpeed,windFrom,"FROM",obsTime,source);
-    points.push(...addEnvironmentalVector(group,point,windFrom,"#17374d",tooltip,"Wind vector; bearing is FROM",true));
+    const windValue=`${Number(windSpeed ?? 0).toFixed(2)} kn`;
+    points.push(...addEnvironmentalVector(group,point,windFrom,"#17374d",tooltip,"Wind vector; bearing is FROM","WIND",windValue,true));
   }
   const currentToward=environmentalNumber(env.current_direction_deg),currentSpeed=env.current_speed_knots;
   if(currentToward!=null){
     const tooltip=environmentalTooltip("SURFACE CURRENT",currentSpeed,currentToward,"TOWARD",obsTime,source);
-    points.push(...addEnvironmentalVector(group,point,currentToward,"#526c7c",tooltip,"Surface current vector; bearing is TOWARD"));
+    const currentValue=`${Number(currentSpeed ?? 0).toFixed(2)} kn`;
+    points.push(...addEnvironmentalVector(group,point,currentToward,"#526c7c",tooltip,"Surface current vector; bearing is TOWARD","CURRENT",currentValue));
   }
   return points;
 }
